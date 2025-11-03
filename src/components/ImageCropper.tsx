@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { X, Check, Move, Eye, EyeOff, Unlock, Lock } from 'lucide-react';
+import { X, Check, Move, Eye, EyeOff, Unlock, Lock, ArrowLeftRight } from 'lucide-react';
 
 interface ImageCropperProps {
   imageUrl: string;
@@ -14,7 +14,8 @@ const ASPECT_RATIOS = [
   { name: '1:1', value: 1 },
   { name: '2:3', value: 2/3 },
   { name: '3:4', value: 3/4 },
-  { name: '9:16', value: 9/16 }
+  { name: '9:16', value: 9/16 },
+  { name: 'Custom', value: 0 }
 ];
 
 export function ImageCropper({ imageUrl, onClose, onImageUpdate }: ImageCropperProps) {
@@ -30,8 +31,29 @@ export function ImageCropper({ imageUrl, onClose, onImageUpdate }: ImageCropperP
   const [lockAspectRatio, setLockAspectRatio] = useState(true);
   const [resizeHandle, setResizeHandle] = useState<string | null>(null);
   const [hoveredButton, setHoveredButton] = useState<string | null>(null);
+  const [customWidth, setCustomWidth] = useState(16);
+  const [customHeight, setCustomHeight] = useState(9);
+  const [customMode, setCustomMode] = useState<'ratio' | 'pixels'>('ratio');
+  const [pixelWidth, setPixelWidth] = useState(1920);
+  const [pixelHeight, setPixelHeight] = useState(1080);
 
-  const currentRatio = lockAspectRatio ? ASPECT_RATIOS[currentRatioIndex].value : null;
+  const isCustomRatio = currentRatioIndex === ASPECT_RATIOS.length - 1;
+  const customRatioValue = customWidth / customHeight;
+  const currentRatio = lockAspectRatio
+    ? (isCustomRatio ? (customMode === 'ratio' ? customRatioValue : pixelWidth / pixelHeight) : ASPECT_RATIOS[currentRatioIndex].value)
+    : null;
+
+  const swapRatioDimensions = () => {
+    const temp = customWidth;
+    setCustomWidth(customHeight);
+    setCustomHeight(temp);
+  };
+
+  const swapPixelDimensions = () => {
+    const temp = pixelWidth;
+    setPixelWidth(pixelHeight);
+    setPixelHeight(temp);
+  };
 
   const initializeCropBox = () => {
     const img = imageRef.current;
@@ -41,13 +63,34 @@ export function ImageCropper({ imageUrl, onClose, onImageUpdate }: ImageCropperP
     const imgWidth = imgRect.width;
     const imgHeight = imgRect.height;
 
-    let boxWidth = imgWidth * 0.8;
-    let boxHeight = currentRatio ? boxWidth / currentRatio : imgHeight * 0.8;
+    let boxWidth: number;
+    let boxHeight: number;
 
-    // Adjust if the height exceeds the image bounds
-    if (boxHeight > imgHeight * 0.8) {
-      boxHeight = imgHeight * 0.8;
-      boxWidth = currentRatio ? boxHeight * currentRatio : imgWidth * 0.8;
+    // If in pixel mode with custom ratio, calculate box size based on target pixel dimensions
+    if (isCustomRatio && customMode === 'pixels') {
+      // Calculate scale to fit target dimensions within displayed image
+      const scaleX = img.naturalWidth / imgRect.width;
+      const scaleY = img.naturalHeight / imgRect.height;
+
+      // Target dimensions in display pixels
+      boxWidth = pixelWidth / scaleX;
+      boxHeight = pixelHeight / scaleY;
+
+      // If the box is too large, scale it down proportionally
+      if (boxWidth > imgWidth || boxHeight > imgHeight) {
+        const scale = Math.min(imgWidth / boxWidth, imgHeight / boxHeight) * 0.8;
+        boxWidth *= scale;
+        boxHeight *= scale;
+      }
+    } else {
+      boxWidth = imgWidth * 0.8;
+      boxHeight = currentRatio ? boxWidth / currentRatio : imgHeight * 0.8;
+
+      // Adjust if the height exceeds the image bounds
+      if (boxHeight > imgHeight * 0.8) {
+        boxHeight = imgHeight * 0.8;
+        boxWidth = currentRatio ? boxHeight * currentRatio : imgWidth * 0.8;
+      }
     }
 
     const x = (imgWidth - boxWidth) / 2;
@@ -60,7 +103,7 @@ export function ImageCropper({ imageUrl, onClose, onImageUpdate }: ImageCropperP
     if (imageLoaded) {
       initializeCropBox();
     }
-  }, [imageLoaded, currentRatio, lockAspectRatio]);
+  }, [imageLoaded, currentRatio, lockAspectRatio, customWidth, customHeight, customMode, pixelWidth, pixelHeight]);
 
   const handleWheel = (e: WheelEvent) => {
     e.preventDefault();
@@ -221,25 +264,39 @@ export function ImageCropper({ imageUrl, onClose, onImageUpdate }: ImageCropperP
 
     const img = imageRef.current;
     const imgRect = img.getBoundingClientRect();
-    
+
     // Calculate the scale between displayed size and natural size
     const scaleX = img.naturalWidth / imgRect.width;
     const scaleY = img.naturalHeight / imgRect.height;
 
-    // Set canvas dimensions to maintain the exact aspect ratio
-    const canvasWidth = Math.round(cropBox.width * scaleX);
-    const canvasHeight = Math.round(cropBox.height * scaleY);
-    
+    let canvasWidth: number;
+    let canvasHeight: number;
+
+    // If in pixel mode with custom ratio, use exact pixel dimensions
+    if (isCustomRatio && customMode === 'pixels') {
+      canvasWidth = pixelWidth;
+      canvasHeight = pixelHeight;
+    } else {
+      // Set canvas dimensions to maintain the exact aspect ratio
+      canvasWidth = Math.round(cropBox.width * scaleX);
+      canvasHeight = Math.round(cropBox.height * scaleY);
+    }
+
     canvas.width = canvasWidth;
     canvas.height = canvasHeight;
 
-    // Draw the cropped portion maintaining exact proportions
+    // Draw the cropped portion
+    const sourceX = Math.round(cropBox.x * scaleX);
+    const sourceY = Math.round(cropBox.y * scaleY);
+    const sourceWidth = Math.round(cropBox.width * scaleX);
+    const sourceHeight = Math.round(cropBox.height * scaleY);
+
     ctx.drawImage(
       img,
-      Math.round(cropBox.x * scaleX),
-      Math.round(cropBox.y * scaleY),
-      canvasWidth,
-      canvasHeight,
+      sourceX,
+      sourceY,
+      sourceWidth,
+      sourceHeight,
       0,
       0,
       canvasWidth,
@@ -334,20 +391,107 @@ export function ImageCropper({ imageUrl, onClose, onImageUpdate }: ImageCropperP
         </div>
       </div>
 
-      <div className="absolute top-4 left-1/2 transform -translate-x-1/2 flex gap-2 z-20">
-        {lockAspectRatio && ASPECT_RATIOS.map((ratio, index) => (
-          <button
-            key={ratio.name}
-            onClick={() => setCurrentRatioIndex(index)}
-            className={`px-3 py-1 rounded-full transition-colors ${
-              index === currentRatioIndex
-                ? 'bg-white text-black'
-                : 'bg-black/50 text-white hover:bg-black/70'
-            }`}
-          >
-            {ratio.name}
-          </button>
-        ))}
+      <div className="absolute top-4 left-1/2 transform -translate-x-1/2 z-20">
+        <div className="flex gap-2">
+          {lockAspectRatio && ASPECT_RATIOS.map((ratio, index) => (
+            <button
+              key={ratio.name}
+              onClick={() => setCurrentRatioIndex(index)}
+              className={`px-3 py-1 rounded-full transition-colors ${
+                index === currentRatioIndex
+                  ? 'bg-white text-black'
+                  : 'bg-black/50 text-white hover:bg-black/70'
+              }`}
+            >
+              {ratio.name}
+            </button>
+          ))}
+        </div>
+
+        {lockAspectRatio && isCustomRatio && (
+          <div className="flex flex-col gap-2 items-center justify-center mt-2">
+            <div className="flex gap-1 bg-black/70 rounded-full p-1">
+              <button
+                onClick={() => setCustomMode('ratio')}
+                className={`px-3 py-1 rounded-full text-sm transition-colors ${
+                  customMode === 'ratio'
+                    ? 'bg-white text-black'
+                    : 'text-white hover:bg-white/10'
+                }`}
+              >
+                Ratio
+              </button>
+              <button
+                onClick={() => setCustomMode('pixels')}
+                className={`px-3 py-1 rounded-full text-sm transition-colors ${
+                  customMode === 'pixels'
+                    ? 'bg-white text-black'
+                    : 'text-white hover:bg-white/10'
+                }`}
+              >
+                Pixels
+              </button>
+            </div>
+
+            {customMode === 'ratio' ? (
+              <div className="flex gap-2 items-center">
+                <input
+                  type="number"
+                  min="1"
+                  max="999"
+                  value={customWidth}
+                  onChange={(e) => setCustomWidth(Math.max(1, parseInt(e.target.value) || 1))}
+                  className="w-16 px-2 py-1 rounded bg-black/70 text-white text-center border border-white/30 focus:border-white/60 focus:outline-none"
+                  placeholder="W"
+                />
+                <button
+                  onClick={swapRatioDimensions}
+                  className="p-1 rounded bg-black/70 text-white hover:bg-white/20 transition-colors border border-white/30"
+                  title="Swap width and height"
+                >
+                  <ArrowLeftRight className="w-4 h-4" />
+                </button>
+                <input
+                  type="number"
+                  min="1"
+                  max="999"
+                  value={customHeight}
+                  onChange={(e) => setCustomHeight(Math.max(1, parseInt(e.target.value) || 1))}
+                  className="w-16 px-2 py-1 rounded bg-black/70 text-white text-center border border-white/30 focus:border-white/60 focus:outline-none"
+                  placeholder="H"
+                />
+              </div>
+            ) : (
+              <div className="flex gap-2 items-center">
+                <input
+                  type="number"
+                  min="1"
+                  max="9999"
+                  value={pixelWidth}
+                  onChange={(e) => setPixelWidth(Math.max(1, parseInt(e.target.value) || 1))}
+                  className="w-20 px-2 py-1 rounded bg-black/70 text-white text-center border border-white/30 focus:border-white/60 focus:outline-none"
+                  placeholder="Width"
+                />
+                <button
+                  onClick={swapPixelDimensions}
+                  className="p-1 rounded bg-black/70 text-white hover:bg-white/20 transition-colors border border-white/30"
+                  title="Swap width and height"
+                >
+                  <ArrowLeftRight className="w-4 h-4" />
+                </button>
+                <input
+                  type="number"
+                  min="1"
+                  max="9999"
+                  value={pixelHeight}
+                  onChange={(e) => setPixelHeight(Math.max(1, parseInt(e.target.value) || 1))}
+                  className="w-20 px-2 py-1 rounded bg-black/70 text-white text-center border border-white/30 focus:border-white/60 focus:outline-none"
+                  placeholder="Height"
+                />
+              </div>
+            )}
+          </div>
+        )}
       </div>
 
       <div 
