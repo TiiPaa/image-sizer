@@ -3,7 +3,7 @@ import react from '@vitejs/plugin-react';
 
 export default defineConfig({
   plugins: [react()],
-  base : "/image-sizer"
+  base : "/image-sizer",
   build: {
     outDir: 'dist',
     sourcemap: true,
